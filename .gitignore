@@ -1,0 +1,16 @@
+# Credentials and local environments
+.env
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.streamlit/secrets.toml
+
+# Local/demo data and generated outputs
+data/health_records_100k.csv
+data/consultation_requests.csv
+reports/
+*.pdf
+
+# Keep the compressed deployment artifact; the original is too large for normal Git hosting.
+models/healthguard_model.joblib
