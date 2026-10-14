@@ -213,15 +213,15 @@ def dashboard_page():
                     symptom.replace("_", " ").title()
                     for symptom in result.get("symptoms", [])
                 ) or "No supported symptom tags"
-                best = condition_matches[0]
+                best_row = condition_data.iloc[0]
                 st.write("**Symptoms entered:**", reported)
-                st.write("**Highest symptom-tag coverage:**", best["condition"])
+                st.write("**Highest symptom-tag coverage:**", best_row["Condition"])
                 st.write(
                     "**Coverage score:**",
-                    f"{condition_data.iloc[0]['Reported-symptom coverage (%)']}% "
+                    f"{best_row['Reported-symptom coverage (%)']}% "
                     "(share of entered tags matched; not a disease chance)",
                 )
-                st.write("**Shared tags:**", condition_data.iloc[0]["Tags matched"])
+                st.write("**Shared tags:**", best_row["Tags matched"])
                 st.write(
                     "**Not assessed:**",
                     "symptom severity and duration, medical history, examination, medicines, or test results",
@@ -429,14 +429,22 @@ def symptom_page():
             condition_matches = []
             st.info("The broader research reference is temporarily unavailable. Your check-in is still available.")
         if condition_matches:
-            st.caption("Conditions below are benchmark matches for the symptoms you selected; missing symptoms and personal history are not considered.")
+            st.caption(
+                "Coverage is the share of your entered symptom tags present in a benchmark profile. "
+                "It is not the chance of having a condition; medical history, examination, and tests are not included."
+            )
+            reported_tag_count = max(1, len(set(result.get("symptoms", []))))
             for match in condition_matches:
-                symptom_names = ", ".join(match["matched_symptoms"])
+                matched_tags = match.get("matched_symptom_tags", [])
+                coverage = round(100 * len(matched_tags) / reported_tag_count, 1)
+                symptom_names = ", ".join(
+                    tag.replace("_", " ").title() for tag in matched_tags
+                ) or ", ".join(match["matched_symptoms"])
                 st.markdown(
                     f"**{html.escape(match['condition'])}** · "
-                    f"{match['match_count']} matching symptom tag(s)"
+                    f"{coverage}% symptom-tag coverage"
                 )
-                st.caption(f"Benchmark tags: {symptom_names}")
+                st.caption(f"Tags matched: {symptom_names}")
             topic_names = [item["condition"] for item in condition_matches]
             selection_key = f"medline_topics_{abs(hash(tuple(topic_names)))}"
             with st.expander("Read trusted condition information · MedlinePlus"):
