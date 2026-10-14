@@ -21,12 +21,9 @@ A Streamlit educational healthcare project with a modern interface, symptom-inpu
 
 ## Share a hosted demo
 
-The app currently runs only on your computer. To give a colleague a link, deploy it to [Streamlit Community Cloud](https://share.streamlit.io/) from a GitHub repository:
+This project is deployed on [Streamlit Community Cloud](https://share.streamlit.io/). The public app is available at https://healthguard-ai-n6w9lv9tojync7mdrttwyk.streamlit.app/. Updates to the configured GitHub branch are published through the app deployment.
 
-1. Create a GitHub repository and push this project, including `models/healthguard_model.deploy.joblib` and `requirements.txt`.
-2. Keep `.env`, `.venv`, the original uncompressed model, generated reports, and local demo records out of Git. The included `.gitignore` does this.
-3. In Streamlit Community Cloud, choose **Create app**, select the repository and branch, and set the app file to `app.py`. Choose Python 3.12 in **Advanced settings** if the option is shown.
-4. For an invited-colleagues link, keep the GitHub repository private, deploy it as a private app, and invite your colleague by email in the app's sharing settings. For an anyone-with-the-link app, use a public repository and public app instead.
+Keep `.env`, `.venv`, the original uncompressed model, generated reports, and local demo records out of Git. The included `.gitignore` does this. Anyone with the public app link can access the demo.
 
 The deployed app is an educational demo only. Consultation requests are emailed only when configured through Streamlit Secrets; the app does not save them to durable storage. Do not use this hosted prototype to collect real patient information. Do not upload `.env` or put API keys in source code; add credentials only through the hosting provider's secrets settings.
 
