@@ -17,6 +17,7 @@ from backend.nlp import extract_symptoms
 from backend.predict import predict
 from backend.report import create_report
 from backend.simulator import stream_vitals
+from backend.health_reference import load_ddxplus_metadata, related_condition_matches, search_medlineplus_topics
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
@@ -70,6 +71,16 @@ def _send_consultation_email(config, patient_name, patient_email, specialty, mod
         server.ehlo()
         server.login(config["smtp_username"], config["smtp_password"])
         server.send_message(message)
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def _load_ddxplus_reference():
+    return load_ddxplus_metadata()
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def _search_medlineplus_topics(condition_name):
+    return search_medlineplus_topics(condition_name)
 
 
 def hero(eyebrow, title, subtitle, variant=""):
@@ -320,6 +331,76 @@ def symptom_page():
             level, color, message = _attention_signal(result)
             st.markdown(f"<div class='hg-card'><span class='hg-pill'>SAFETY CHECK</span><h3>What to consider next</h3><div class='hg-risk-signal hg-risk-{color}'><span class='hg-signal-dot'></span><div><small>RULE-BASED RISK INDICATOR</small><strong>{level} LEVEL</strong></div></div><p class='hg-risk-copy'>{html.escape(message)}</p></div>", unsafe_allow_html=True)
             st.caption("This rule-based signal is not a validated medical risk score or diagnosis.")
+
+        st.markdown("### Broader possible conditions · research demo")
+        st.caption(
+            "This list compares selected symptoms with the DDXPlus benchmark's condition tags. "
+            "DDXPlus contains synthetic cases and only 49 conditions; overlap counts are not "
+            "probabilities, diagnoses, or a measure of medical risk."
+        )
+        try:
+            with st.spinner("Loading the condition reference..."):
+                ddx_conditions, ddx_evidences = _load_ddxplus_reference()
+            condition_matches = related_condition_matches(
+                result["symptoms"], ddx_conditions, ddx_evidences
+            )
+        except Exception:
+            condition_matches = []
+            st.info("The broader research reference is temporarily unavailable. Your check-in is still available.")
+        if condition_matches:
+            st.caption("Conditions below are benchmark matches for the symptoms you selected; missing symptoms and personal history are not considered.")
+            for match in condition_matches:
+                symptom_names = ", ".join(match["matched_symptoms"])
+                st.markdown(
+                    f"**{html.escape(match['condition'])}** · "
+                    f"{match['match_count']} matching symptom tag(s)"
+                )
+                st.caption(f"Benchmark tags: {symptom_names}")
+            topic_names = [item["condition"] for item in condition_matches]
+            selection_key = f"medline_topics_{abs(hash(tuple(topic_names)))}"
+            with st.expander("Read trusted condition information · MedlinePlus"):
+                st.caption(
+                    "When you click Search, only the condition names you select below are sent "
+                    "to the U.S. National Library of Medicine's MedlinePlus search service. "
+                    "Your name, symptoms, notes, age, and readings are not sent."
+                )
+                selected_topics = st.multiselect(
+                    "Choose condition topics to look up",
+                    options=topic_names,
+                    default=topic_names[:3],
+                    key=selection_key,
+                )
+                allow_topic_search = st.checkbox(
+                    "I agree to search MedlinePlus for these condition names.",
+                    key=f"{selection_key}_consent",
+                )
+                if st.button("Search MedlinePlus", key=f"{selection_key}_search"):
+                    if not selected_topics:
+                        st.warning("Choose at least one condition topic.")
+                    elif not allow_topic_search:
+                        st.warning("Confirm the search disclosure before continuing.")
+                    else:
+                        for topic in selected_topics[:3]:
+                            st.markdown(f"#### {html.escape(topic)}")
+                            try:
+                                topic_results = _search_medlineplus_topics(topic)
+                                if not topic_results:
+                                    st.caption("No matching MedlinePlus topic was found.")
+                                for topic_result in topic_results:
+                                    st.markdown(f"**{html.escape(topic_result['title'])}**")
+                                    summary = topic_result.get("fullsummary") or topic_result.get("snippet", "")
+                                    if summary:
+                                        st.write(summary[:900] + ("…" if len(summary) > 900 else ""))
+                                    st.link_button(
+                                        "Open MedlinePlus topic",
+                                        topic_result["url"],
+                                        key=f"medline_link_{abs(hash(topic_result['url']))}",
+                                    )
+                            except Exception:
+                                st.info("MedlinePlus search is temporarily unavailable.")
+                        st.caption("Information source: MedlinePlus.gov · U.S. National Library of Medicine.")
+        else:
+            st.info("No symptom-tag overlap was found in the available DDXPlus conditions.")
 
         if st.button("Generate AI health-information guidance", type="primary"):
             context = (
