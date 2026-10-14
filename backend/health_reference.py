@@ -56,19 +56,24 @@ def related_condition_matches(symptoms, conditions, evidences, limit=8):
     """Rank benchmark conditions by exact symptom-tag overlap; never emit probabilities."""
     matched_evidence_ids = set()
     matched_questions = {}
+    evidence_by_symptom = {}
     for symptom in set(symptoms or []):
         aliases = SYMPTOM_ALIASES.get(symptom, ())
         if not aliases:
             continue
+        symptom_evidence_ids = set()
         for evidence_id, evidence in evidences.items():
             if evidence.get("is_antecedent"):
                 continue
             question = str(evidence.get("question_en", "")).lower()
             if any(alias in question for alias in aliases):
                 matched_evidence_ids.add(evidence_id)
+                symptom_evidence_ids.add(evidence_id)
                 matched_questions[evidence_id] = str(
                     evidence.get("question_en", symptom.replace("_", " "))
                 )
+        if symptom_evidence_ids:
+            evidence_by_symptom[symptom] = symptom_evidence_ids
 
     if not matched_evidence_ids:
         return []
@@ -80,10 +85,16 @@ def related_condition_matches(symptoms, conditions, evidences, limit=8):
         if overlap:
             name = str(condition.get("condition_name", "")).strip()
             if name:
+                matched_tags = sorted(
+                    symptom
+                    for symptom, evidence_ids in evidence_by_symptom.items()
+                    if evidence_ids & condition_evidence
+                )
                 results.append({
                     "condition": name,
                     "match_count": len(overlap),
                     "matched_symptoms": [matched_questions[item] for item in overlap],
+                    "matched_symptom_tags": matched_tags,
                 })
     results.sort(key=lambda item: (-item["match_count"], item["condition"].casefold()))
     return results[:limit]
