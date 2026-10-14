@@ -338,6 +338,10 @@ def symptom_page():
             "DDXPlus contains synthetic cases and only 49 conditions; overlap counts are not "
             "probabilities, diagnoses, or a measure of medical risk."
         )
+        st.caption(
+            "Dataset: [DDXPlus](https://mila-iqia.github.io/ddxplus/) by Fansi Tchango et al. "
+            "The dataset is licensed CC BY 4.0 and was generated synthetically."
+        )
         try:
             with st.spinner("Loading the condition reference..."):
                 ddx_conditions, ddx_evidences = _load_ddxplus_reference()
