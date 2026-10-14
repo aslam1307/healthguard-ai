@@ -141,39 +141,105 @@ def dashboard_page():
             st.markdown(f"<div class='hg-card'><span class='hg-pill'>SAFETY CHECK</span><h3>What to consider next</h3><div class='hg-risk-signal hg-risk-{color}'><span class='hg-signal-dot'></span><div><small>RULE-BASED RISK INDICATOR</small><strong>{level} LEVEL</strong></div></div><p class='hg-risk-copy'>{html.escape(message)}</p></div>", unsafe_allow_html=True)
             st.caption("Entered readings are saved only in this app session and are not verified by a device.")
 
-        estimates = st.session_state.get("last_pattern_estimates", [])
-        st.markdown("### Possible patterns · demo model")
-        st.caption("The classifier was trained on synthetic records. Scores show broad pattern matching for demonstration only; they are not probabilities of a disease, causes, diagnoses, or clinical advice. Several uncollected model inputs use fixed demo defaults.")
-        if estimates:
-            pattern_data = pd.DataFrame([
-                {"Pattern": label, "Model estimate (%)": round(probability * 100, 1)}
-                for label, probability in estimates
-            ]).sort_values("Model estimate (%)", ascending=False)
-            chart_left, chart_right = st.columns(2)
+        st.markdown("### Related conditions · reference matches")
+        st.caption(
+            "Condition names below come from DDXPlus benchmark entries whose symptom tags overlap "
+            "with the symptoms you reported. Bar lengths count shared tags; they are not disease "
+            "probabilities, diagnoses, causes, or clinical advice."
+        )
+        try:
+            with st.spinner("Comparing reported symptoms with the reference..."):
+                ddx_conditions, ddx_evidences = _load_ddxplus_reference()
+            condition_matches = related_condition_matches(
+                result.get("symptoms", []), ddx_conditions, ddx_evidences
+            )
+        except Exception:
+            condition_matches = []
+            st.info("The condition reference is temporarily unavailable. Your check-in summary and safety signal are still available.")
+
+        if condition_matches:
+            st.caption(
+                "DDXPlus is a synthetic research benchmark covering 49 conditions. "
+                "It does not assess medical history, examination findings, tests, or whether a condition is present."
+            )
+            condition_data = pd.DataFrame([
+                {
+                    "Condition": match["condition"],
+                    "Overlapping symptom tags": match["match_count"],
+                    "Tags matched": ", ".join(match["matched_symptoms"]),
+                }
+                for match in condition_matches
+            ]).sort_values(
+                ["Overlapping symptom tags", "Condition"],
+                ascending=[False, True],
+            )
+            chart_left, chart_right = st.columns([1.2, 1])
             with chart_left:
                 bar = px.bar(
-                    pattern_data, x="Model estimate (%)", y="Pattern", orientation="h",
-                    color="Pattern", text="Model estimate (%)", template="plotly_white",
-                    color_discrete_sequence=["#7555e8", "#f26b70", "#17b890", "#49a7ec", "#ffc36b", "#a66be0", "#55bca8", "#f39b64"],
-                    title="Demo pattern scores",
+                    condition_data,
+                    x="Overlapping symptom tags",
+                    y="Condition",
+                    orientation="h",
+                    text="Overlapping symptom tags",
+                    color="Overlapping symptom tags",
+                    color_continuous_scale=["#b8a5ff", "#7555e8"],
+                    template="plotly_white",
+                    title="Benchmark conditions sharing reported symptom tags",
                 )
-                bar.update_traces(texttemplate="%{text:.1f}%", textposition="outside", cliponaxis=False)
-                bar.update_layout(showlegend=False, height=390, margin=dict(l=10, r=35, t=55, b=20), xaxis_range=[0, 100], yaxis_title="")
+                bar.update_traces(textposition="outside", cliponaxis=False)
+                bar.update_layout(
+                    showlegend=False,
+                    coloraxis_showscale=False,
+                    height=max(360, 42 * len(condition_data)),
+                    margin=dict(l=10, r=30, t=60, b=25),
+                    xaxis_title="Number of overlapping symptom tags",
+                    yaxis_title="",
+                )
                 st.plotly_chart(bar, use_container_width=True)
+
             with chart_right:
-                donut = px.pie(
-                    pattern_data, names="Pattern", values="Model estimate (%)", hole=.58,
-                    color="Pattern", template="plotly_white",
-                    color_discrete_sequence=["#7555e8", "#f26b70", "#17b890", "#49a7ec", "#ffc36b", "#a66be0", "#55bca8", "#f39b64"],
-                    title="Pattern score distribution · demo only",
+                st.markdown(
+                    "<div class='hg-card'><span class='hg-pill'>STRUCTURED REVIEW</span>"
+                    "<h3>What this comparison found</h3></div>",
+                    unsafe_allow_html=True,
                 )
-                donut.update_traces(textinfo="percent", textposition="inside")
-                donut.update_layout(height=390, margin=dict(l=10, r=10, t=55, b=15), legend=dict(font=dict(size=10)))
-                st.plotly_chart(donut, use_container_width=True)
-        elif st.session_state.get("pattern_estimate_error"):
-            st.info(st.session_state["pattern_estimate_error"])
+                reported = ", ".join(
+                    symptom.replace("_", " ").title()
+                    for symptom in result.get("symptoms", [])
+                ) or "No supported symptom tags"
+                best = condition_matches[0]
+                st.write("**Symptoms entered:**", reported)
+                st.write("**Most tag overlap in this reference:**", best["condition"])
+                st.write("**Shared tags:**", ", ".join(best["matched_symptoms"]))
+                st.write(
+                    "**Not assessed:**",
+                    "symptom severity and duration, medical history, examination, medicines, or test results",
+                )
+                st.info(
+                    "This is a limited symptom-tag comparison, not a clinical analysis. "
+                    "A matching name does not mean you have that condition."
+                )
+                if "chest_pain" in result.get("symptoms", []):
+                    st.warning(
+                        "Chest pain is flagged by this app’s safety rules. Seek prompt medical advice; "
+                        "for severe or sudden pain, contact local emergency services."
+                    )
+
+            st.dataframe(
+                condition_data,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Overlapping symptom tags": st.column_config.NumberColumn(
+                        "Overlapping symptom tags", format="%d"
+                    ),
+                },
+            )
         else:
-            st.info("Complete a symptom check-in to see the prototype's demo pattern charts here.")
+            st.info(
+                "No condition entries with matching symptom tags were returned for this check-in. "
+                "That does not rule out any cause; the reference covers only a limited set of conditions."
+            )
 
     ai_guidance = st.session_state.get("last_ai_guidance")
     if ai_guidance:
