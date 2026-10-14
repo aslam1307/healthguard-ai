@@ -1,7 +1,10 @@
 import json
 import html
 import re
-from datetime import date, datetime
+import smtplib
+import ssl
+from email.message import EmailMessage
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -19,7 +22,52 @@ ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
 DOCTORS_FILE = DATA_DIR / "doctors.csv"
 LEGACY_DOCTORS_FILE = DATA_DIR / "doctors.csv.csv"
-REQUESTS_FILE = DATA_DIR / "consultation_requests.csv"
+
+
+def _consultation_mail_config():
+    """Read the fixed doctor mailbox and sender credentials from Streamlit Secrets."""
+    try:
+        values = st.secrets.get("consultation_mail", {})
+    except Exception:
+        values = {}
+    config = {
+        key: str(values.get(key, "")).strip()
+        for key in ("smtp_host", "smtp_username", "smtp_password", "from_email", "doctor_email")
+    }
+    config["doctor_name"] = str(values.get("doctor_name", "Doctor")).strip() or "Doctor"
+    try:
+        config["smtp_port"] = int(values.get("smtp_port", 587))
+    except (TypeError, ValueError):
+        config["smtp_port"] = 0
+    return config
+
+
+def _valid_email(value):
+    return bool(re.fullmatch(r"[^@\\s<>]+@[^@\\s<>]+\\.[^@\\s<>]+", value.strip()))
+
+
+def _send_consultation_email(config, patient_name, patient_email, specialty, mode, preferred_date, summary):
+    message = EmailMessage()
+    message["From"] = config["from_email"]
+    message["To"] = config["doctor_email"]
+    message["Reply-To"] = patient_email
+    message["Subject"] = f"Consultation request — {specialty}"
+    message.set_content(
+        "A consultation request was submitted through CareBuddy AI.\n\n"
+        f"Name: {patient_name}\n"
+        f"Reply email: {patient_email}\n"
+        f"Preferred specialty: {specialty}\n"
+        f"Preferred consultation: {mode}\n"
+        f"Preferred date: {preferred_date.isoformat()}\n"
+        f"Reason: {summary or 'Not provided'}\n\n"
+        "This is a request only; no appointment has been confirmed."
+    )
+    with smtplib.SMTP(config["smtp_host"], config["smtp_port"], timeout=20) as server:
+        server.ehlo()
+        server.starttls(context=ssl.create_default_context())
+        server.ehlo()
+        server.login(config["smtp_username"], config["smtp_password"])
+        server.send_message(message)
 
 
 def hero(eyebrow, title, subtitle, variant=""):
@@ -336,61 +384,80 @@ def _load_doctors():
 
 
 def doctors_page():
-    hero("CARE CONNECTIONS", "Doctor consultation", "Browse the doctor directory and submit a demo request for an appointment.")
-    st.caption("Directory details come from the CSV and are not independently verified by this app.")
-    doctors = _load_doctors()
+    hero("CARE CONNECTIONS", "Doctor consultation", "Send a consultation request to the configured doctor and receive a reply by email.")
+    mail_config = _consultation_mail_config()
+    required_settings = ("smtp_host", "smtp_username", "smtp_password", "from_email", "doctor_email")
+    if not all(mail_config[key] for key in required_settings) or not mail_config["smtp_port"]:
+        st.warning("Consultation email is not configured yet. Requests will not be sent or saved.")
+        st.info("The app owner must add the doctor's address and an authenticated email sender in Streamlit Secrets.")
+        return
+    if not _valid_email(mail_config["doctor_email"]) or not _valid_email(mail_config["from_email"]):
+        st.error("Consultation email settings are invalid. No request can be sent.")
+        return
 
-    if doctors.empty:
-        st.markdown("<div class='hg-card'><span class='hg-pill'>DIRECTORY SETUP</span><h3>Your doctor directory is ready to populate</h3><p>Add doctors to <b>data/doctors.csv</b>.</p></div>", unsafe_allow_html=True)
-    else:
+    doctor_name = mail_config["doctor_name"]
+    doctor_email = mail_config["doctor_email"]
+    st.info(f"Requests will be emailed to {doctor_name} at {doctor_email}. The doctor can reply directly to the email address you provide.")
+    st.caption("Email is for routine appointment requests only. Do not use this form for emergencies or include information you do not want sent by email.")
+
+    doctors = _load_doctors()
+    if not doctors.empty:
+        st.markdown("## Doctor directory")
+        st.caption("Directory details come from the CSV and are not independently verified by this app.")
         for start in range(0, len(doctors), 3):
             cols = st.columns(3)
             for col, (_, doc) in zip(cols, doctors.iloc[start:start+3].iterrows()):
                 name = str(doc.get("doctor_name", "Doctor profile")) or "Doctor profile"
-                specialty = str(doc.get("specialty", "Specialty not added")) or "Specialty not added"
+                specialty_label = str(doc.get("specialty", "Specialty not added")) or "Specialty not added"
                 hospital = str(doc.get("clinic_or_hospital", "Clinic details")) or "Clinic details"
                 with col:
                     st.markdown(
-                        f"<div class='hg-card'><span class='hg-pill'>{html.escape(specialty)}</span>"
+                        f"<div class='hg-card'><span class='hg-pill'>{html.escape(specialty_label)}</span>"
                         f"<h3>👨‍⚕️ {html.escape(name)}</h3>"
                         f"<p>{html.escape(hospital)}</p></div>",
                         unsafe_allow_html=True,
                     )
-                    phone = str(doc.get("phone", "")).strip()
-                    if phone: st.write(f"☎️ {phone}")
                     url = str(doc.get("booking_url", "")).strip()
-                    if url.startswith("https://") or url.startswith("http://"):
+                    if url.startswith("https://"):
                         st.link_button("Open booking page", url)
 
     st.markdown("## Request a consultation")
     with st.form("consultation_request_form"):
         c1, c2 = st.columns(2)
-        patient_name = c1.text_input("Your name")
-        contact = c2.text_input("Phone or email for follow-up")
+        patient_name = c1.text_input("Your name", max_chars=100)
+        patient_email = c2.text_input("Your email for the doctor's reply", max_chars=254)
         specialty_options = ["General Medicine", "Cardiology", "Dermatology", "Paediatrics", "Mental Health", "Orthopaedics", "Other"]
         specialty = st.selectbox("Preferred specialty", specialty_options)
         mode = st.selectbox("Preferred consultation", ["Online", "In person", "Either"])
         preferred_date = st.date_input("Preferred date", min_value=date.today())
-        summary = st.text_area("Brief reason for consultation", max_chars=1000)
-        request_consent = st.checkbox("I understand this is a demo request and no appointment is confirmed.")
-        send = st.form_submit_button("Save consultation request", use_container_width=True)
+        summary = st.text_area("Brief reason for consultation (optional)", max_chars=1000)
+        consent_text = (
+            f"I agree to email my name, email, preferred specialty, consultation type, date, "
+            f"and reason to {doctor_name} at {doctor_email}. The doctor may reply to my email."
+        )
+        request_consent = st.checkbox(consent_text)
+        send = st.form_submit_button("Email request to doctor", use_container_width=True)
+
     if send:
-        if not patient_name.strip() or not contact.strip():
-            st.error("Enter your name and a contact method to save the request.")
+        if not patient_name.strip() or not _valid_email(patient_email):
+            st.error("Enter your name and a valid email address so the doctor can reply.")
         elif not request_consent:
-            st.error("Please acknowledge that this is a demo request.")
+            st.error("Please confirm that you want these details emailed to the doctor.")
         else:
-            DATA_DIR.mkdir(parents=True, exist_ok=True)
-            record = pd.DataFrame([{
-                "request_id": datetime.now().strftime("REQ-%Y%m%d-%H%M%S"),
-                "created_at": datetime.now().isoformat(timespec="seconds"),
-                "patient_name": patient_name.strip(), "contact": contact.strip(),
-                "preferred_specialty": specialty, "consultation_mode": mode,
-                "preferred_date": preferred_date.isoformat(), "reason_summary": summary.strip(),
-                "status": "Pending manual follow-up"
-            }])
-            record.to_csv(REQUESTS_FILE, mode="a", header=not REQUESTS_FILE.exists(), index=False)
-            st.success("Demo request saved locally. Your appointment request has been recorded.")
+            try:
+                _send_consultation_email(
+                    mail_config,
+                    patient_name.strip(),
+                    patient_email.strip(),
+                    specialty,
+                    mode,
+                    preferred_date,
+                    summary.strip(),
+                )
+            except Exception:
+                st.error("The email could not be confirmed as sent. Please contact the clinic directly before trying again.")
+            else:
+                st.success("Your request email was sent to the doctor. This is not a confirmed appointment.")
 
 
 def ai_page():
