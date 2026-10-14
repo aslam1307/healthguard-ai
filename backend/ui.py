@@ -192,13 +192,14 @@ def dashboard_page():
                     template="plotly_white",
                     title="Reported symptom coverage by benchmark condition",
                 )
-                bar.update_traces(textposition="outside", cliponaxis=False)
+                bar.update_traces(texttemplate="%{x:.1f}%", textposition="outside", cliponaxis=False)
                 bar.update_layout(
                     showlegend=False,
                     coloraxis_showscale=False,
                     height=max(360, 42 * len(condition_data)),
                     margin=dict(l=10, r=30, t=60, b=25),
                     xaxis_title="Share of entered symptom tags matched (%)",
+                    xaxis_range=[0, 100],
                     yaxis_title="",
                 )
                 st.plotly_chart(bar, use_container_width=True)
