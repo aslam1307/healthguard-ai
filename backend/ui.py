@@ -143,9 +143,9 @@ def dashboard_page():
 
         st.markdown("### Related conditions · reference matches")
         st.caption(
-            "Condition names below come from DDXPlus benchmark entries whose symptom tags overlap "
-            "with the symptoms you reported. Bar lengths count shared tags; they are not disease "
-            "probabilities, diagnoses, causes, or clinical advice."
+            "The chart shows how many of your reported symptom tags appear in each DDXPlus benchmark profile, "
+            "as a percentage of your entered tags. This is a symptom-coverage score, NOT the chance you have "
+            "a condition. A 100% match does not mean a 100% chance."
         )
         try:
             with st.spinner("Comparing reported symptoms with the reference..."):
@@ -160,31 +160,37 @@ def dashboard_page():
         if condition_matches:
             st.caption(
                 "DDXPlus is a synthetic research benchmark covering 49 conditions. "
-                "It does not assess medical history, examination findings, tests, or whether a condition is present."
+                "It cannot estimate disease likelihood and does not assess medical history, examination findings, or tests."
             )
+            reported_tag_count = max(1, len(set(result.get("symptoms", []))))
             condition_data = pd.DataFrame([
                 {
                     "Condition": match["condition"],
-                    "Overlapping symptom tags": match["match_count"],
-                    "Tags matched": ", ".join(match["matched_symptoms"]),
+                    "Reported-symptom coverage (%)": round(
+                        100 * len(match.get("matched_symptom_tags", [])) / reported_tag_count, 1
+                    ),
+                    "Tags matched": ", ".join(
+                        tag.replace("_", " ").title()
+                        for tag in match.get("matched_symptom_tags", [])
+                    ) or ", ".join(match["matched_symptoms"]),
                 }
                 for match in condition_matches
             ]).sort_values(
-                ["Overlapping symptom tags", "Condition"],
+                ["Reported-symptom coverage (%)", "Condition"],
                 ascending=[False, True],
             )
             chart_left, chart_right = st.columns([1.2, 1])
             with chart_left:
                 bar = px.bar(
                     condition_data,
-                    x="Overlapping symptom tags",
+                    x="Reported-symptom coverage (%)",
                     y="Condition",
                     orientation="h",
-                    text="Overlapping symptom tags",
-                    color="Overlapping symptom tags",
+                    text="Reported-symptom coverage (%)",
+                    color="Reported-symptom coverage (%)",
                     color_continuous_scale=["#b8a5ff", "#7555e8"],
                     template="plotly_white",
-                    title="Benchmark conditions sharing reported symptom tags",
+                    title="Reported symptom coverage by benchmark condition",
                 )
                 bar.update_traces(textposition="outside", cliponaxis=False)
                 bar.update_layout(
@@ -192,7 +198,7 @@ def dashboard_page():
                     coloraxis_showscale=False,
                     height=max(360, 42 * len(condition_data)),
                     margin=dict(l=10, r=30, t=60, b=25),
-                    xaxis_title="Number of overlapping symptom tags",
+                    xaxis_title="Share of entered symptom tags matched (%)",
                     yaxis_title="",
                 )
                 st.plotly_chart(bar, use_container_width=True)
@@ -209,8 +215,13 @@ def dashboard_page():
                 ) or "No supported symptom tags"
                 best = condition_matches[0]
                 st.write("**Symptoms entered:**", reported)
-                st.write("**Most tag overlap in this reference:**", best["condition"])
-                st.write("**Shared tags:**", ", ".join(best["matched_symptoms"]))
+                st.write("**Highest symptom-tag coverage:**", best["condition"])
+                st.write(
+                    "**Coverage score:**",
+                    f"{condition_data.iloc[0]['Reported-symptom coverage (%)']}% "
+                    "(share of entered tags matched; not a disease chance)",
+                )
+                st.write("**Shared tags:**", condition_data.iloc[0]["Tags matched"])
                 st.write(
                     "**Not assessed:**",
                     "symptom severity and duration, medical history, examination, medicines, or test results",
@@ -230,8 +241,8 @@ def dashboard_page():
                 use_container_width=True,
                 hide_index=True,
                 column_config={
-                    "Overlapping symptom tags": st.column_config.NumberColumn(
-                        "Overlapping symptom tags", format="%d"
+                    "Reported-symptom coverage (%)": st.column_config.ProgressColumn(
+                        "Reported-symptom coverage (%)", min_value=0, max_value=100, format="%.1f%%"
                     ),
                 },
             )
