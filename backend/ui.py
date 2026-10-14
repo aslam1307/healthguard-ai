@@ -4,7 +4,7 @@ import re
 import smtplib
 import ssl
 from email.message import EmailMessage
-from datetime import date, datetime, timezone
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
@@ -43,7 +43,7 @@ def _consultation_mail_config():
 
 
 def _valid_email(value):
-    return bool(re.fullmatch(r"[^@\\s<>]+@[^@\\s<>]+\\.[^@\\s<>]+", value.strip()))
+    return bool(re.fullmatch(r"[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+", value.strip()))
 
 
 def _send_consultation_email(config, patient_name, patient_email, specialty, mode, preferred_date, summary):
