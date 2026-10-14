@@ -32,8 +32,10 @@ def _consultation_mail_config():
         values = {}
     config = {
         key: str(values.get(key, "")).strip()
-        for key in ("smtp_host", "smtp_username", "smtp_password", "from_email", "doctor_email")
+        for key in ("smtp_host", "smtp_username", "smtp_password", "from_email")
     }
+    # The doctor address is the user-provided fixed destination; secrets can override it.
+    config["doctor_email"] = str(values.get("doctor_email", "animeready1335@gmail.com")).strip()
     config["doctor_name"] = str(values.get("doctor_name", "Doctor")).strip() or "Doctor"
     try:
         config["smtp_port"] = int(values.get("smtp_port", 587))
